@@ -1,7 +1,7 @@
 export declare const Objects: Readonly<{
     context: "Gestion des équipements";
     category: "Commissioning télécommande";
-    groupe: "test 2";
+    groupe: "Luminaire - Open space";
 }>;
 export declare const ZoneContext: Readonly<{
     context: "Hardware Context Zones";
@@ -17,3 +17,4 @@ export declare const ZoneControlPoint = "Has Zone";
 export declare const DuplicatedZoneControlPoint = "Has Duplicated Zone";
 export declare const IntegrationControlPoint = "Monitored/Integration";
 export declare const OPCUAControlPoint = "Monitored/OPCUA";
+export declare const CorrectBalastControlPoint = "Correct Balast";

@@ -6,4 +6,5 @@ export type ObjectData = {
     DuplicatedZoneCP: SpinalNodeRef;
     IntegrationCP: SpinalNodeRef;
     OPCUACP: SpinalNodeRef;
+    CorrectBalastCP: SpinalNodeRef;
 };

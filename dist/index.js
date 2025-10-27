@@ -56,30 +56,20 @@ class SpinalMain {
      * The main function of the class
      */
     async MainJob() {
-        const contextName = constants.Objects.context;
-        const categoryName = constants.Objects.category;
-        const groupName = constants.Objects.groupe;
-        const objects = await utils.getObjects(contextName, categoryName, groupName);
-        //const test = objects.slice(0, 30);
-        //console.log("Objects:", objects);
-        const chunkSize = 1; // define chunk size
-        console.log("start Integration Data Handler");
-        for (let i = 0; i < objects.length; i += chunkSize) {
-            console.log("Processing object number: ", i, "/", chunkSize);
-            const chunk = objects.slice(i, i + chunkSize);
-            await Promise.all(chunk.map(item => utils.IntegDataHandler(item)));
-            console.log("Processed chunk: ", i + chunkSize, "/", objects.length);
+        const { context, category, groupe } = constants.Objects;
+        const objects = await utils.getObjects(context, category, groupe);
+        //const test = objects.slice(3000,4789);
+        const chunkSize = 50;
+        console.log(`Starting processing ${objects.length} objects in chunks of ${chunkSize}`);
+        // Process objects in chunks, removing them from the array after processing
+        while (objects.length > 0) {
+            const chunk = objects.splice(0, chunkSize);
+            await Promise.all(chunk.map(async (item) => {
+                await utils.DataHandler(item);
+                //await utils.OpcuaDataHandler(item);
+            }));
+            console.log(`Remaining objects: ${objects.length}`);
         }
-        console.log("Done Integration Data Handler");
-        //Process OPCUA
-        console.log("start Opcua Data Handler");
-        for (let i = 0; i < objects.length; i += chunkSize) {
-            console.log("Processing object number: ", i, "/", chunkSize);
-            const chunk = objects.slice(i, i + chunkSize);
-            await Promise.all(chunk.map(item => utils.OpcuaDataHandler(item)));
-            console.log("Processed chunk: ", i + chunkSize, "/", objects.length);
-        }
-        console.log("Done Opcua Data Handler");
         console.log("Done main job");
     }
 }

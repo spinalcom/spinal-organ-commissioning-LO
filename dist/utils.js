@@ -110,6 +110,9 @@ class Utils {
                             case constants.OPCUAControlPoint:
                                 objectData.OPCUACP = bmsEndPoint;
                                 break;
+                            case constants.CorrectBalastControlPoint:
+                                objectData.CorrectBalastCP = bmsEndPoint;
+                                break;
                         }
                     }
                 }
@@ -123,12 +126,20 @@ class Utils {
         }
     }
     async getGroupNumber(bmsendpointID) {
-        //console.log("Getting group number for endpoint ID:", bmsendpointID);
-        const children = await spinal_env_viewer_graph_service_1.SpinalGraphService.getChildren(bmsendpointID, ["hasBmsEndpoint"]);
-        const groupChild = children.find(child => child.name.get() === "Groups");
-        if (groupChild) {
-            const groupNumber = (await groupChild.element.load()).currentValue.get();
-            return groupNumber;
+        try {
+            const children = await spinal_env_viewer_graph_service_1.SpinalGraphService.getChildren(bmsendpointID, ["hasBmsEndpoint"]);
+            const groupChild = children.find(child => child.name && child.name.get() === "Groups");
+            if (groupChild) {
+                const groupElement = await groupChild.element.load();
+                if (groupElement && groupElement.currentValue) {
+                    return groupElement.currentValue.get().toString();
+                }
+            }
+            return 'null';
+        }
+        catch (error) {
+            console.error("Error in getGroupNumber:", error);
+            return 'null';
         }
     }
     /*public async FindGrpInContext(ContextName: string, nodeType: string, grpNumber: string,subnetworkID :string): Promise<any|false> {
@@ -187,7 +198,7 @@ class Utils {
             return undefined;
         }
     }
-    async DoubleCheckZone(Bmsgrp) {
+    async DoubleCheckZone(Bmsgrp, item) {
         try {
             const netGroups = (await spinal_env_viewer_graph_service_1.SpinalGraphService.getParents(Bmsgrp.id.get(), ["hasBmsEndpoint"])).filter(e => e.type.get() == "network");
             const zones = await Promise.all(netGroups.map(async (g) => {
@@ -196,7 +207,7 @@ class Utils {
             }));
             const zoneList = zones.flat();
             if (zoneList.length > 1) {
-                console.log("Multiple zones found for group", Bmsgrp.name.get());
+                console.log("Multiple zones found for :", item.name.get());
                 return false;
             }
             else {
@@ -208,45 +219,116 @@ class Utils {
             return false;
         }
     }
-    async IntegDataHandler(item) {
-        const objectData = {
+    async doubleCheckBalast(balastID, itemID) {
+        try {
+            const balastNode = spinal_env_viewer_graph_service_1.SpinalGraphService.getRealNode(balastID);
+            const opcuaAttribute = await spinal_env_viewer_plugin_documentation_service_1.attributeService.findOneAttributeInCategory(balastNode, "OPC Attributes", "Name");
+            if (opcuaAttribute !== -1) {
+                const opcuaName = opcuaAttribute.value.get();
+                const itemNode = spinal_env_viewer_graph_service_1.SpinalGraphService.getRealNode(itemID);
+                const itemOpcuaAttribute = await spinal_env_viewer_plugin_documentation_service_1.attributeService.findOneAttributeInCategory(itemNode, "OPC Attributes", "LO_Nom_Référence");
+                if (itemOpcuaAttribute !== -1) {
+                    const itemOpcuaName = itemOpcuaAttribute.value.get();
+                    if (opcuaName === itemOpcuaName) {
+                        return true;
+                    }
+                    else {
+                        console.log("Balast OPCUA Name does not match with LO Nom Référence:", opcuaName, "!==", itemOpcuaName);
+                        return false;
+                    }
+                }
+            }
+            return false;
+        }
+        catch (error) {
+            console.error("Error in doubleCheckBalast:", error);
+            return false;
+        }
+    }
+    async DataHandler(item) {
+        let objectData = {
             BalastCP: undefined,
             GroupCP: undefined,
             ZoneCP: undefined,
             DuplicatedZoneCP: undefined,
             IntegrationCP: undefined,
             OPCUACP: undefined,
+            CorrectBalastCP: undefined
         };
         //console.log("in datahandler")
-        const getControlEndPoints = await this.getControlPoint(item.id.get(), constants.controlPointNames, objectData);
-        if (getControlEndPoints.IntegrationCP) {
+        let getControlEndPoints = await this.getControlPoint(item.id.get(), constants.controlPointNames, objectData);
+        if (getControlEndPoints.IntegrationCP && getControlEndPoints.CorrectBalastCP
+            && getControlEndPoints.BalastCP && getControlEndPoints.GroupCP &&
+            getControlEndPoints.ZoneCP && getControlEndPoints.DuplicatedZoneCP &&
+            getControlEndPoints.OPCUACP) {
             //Initialize  control point to false
             await exports.networkService.setEndpointValue(getControlEndPoints.IntegrationCP.id.get(), false);
+            await exports.networkService.setEndpointValue(getControlEndPoints.CorrectBalastCP.id.get(), false);
+            await exports.networkService.setEndpointValue(getControlEndPoints.BalastCP.id.get(), false);
+            await exports.networkService.setEndpointValue(getControlEndPoints.GroupCP.id.get(), false);
+            await exports.networkService.setEndpointValue(getControlEndPoints.ZoneCP.id.get(), false);
+            await exports.networkService.setEndpointValue(getControlEndPoints.DuplicatedZoneCP.id.get(), false);
+            await exports.networkService.setEndpointValue(getControlEndPoints.OPCUACP.id.get(), false);
+            //Start the Processing
             const bmsEndPoints = await spinal_env_viewer_graph_service_1.SpinalGraphService.getChildren(item.id.get(), ["hasBmsEndpoint"]);
             //console.log(bmsEndPoints);
             if (bmsEndPoints.length != 0) {
                 const balast = bmsEndPoints[0];
                 const groupNumber = await this.getGroupNumber(balast.id.get());
-                if (groupNumber != 'null') {
-                    const subnetworkID = await this.getSubnetwork(balast.id.get());
-                    if (subnetworkID != undefined) {
-                        //console.log("Subnetwork ID found:", subnetworkID);
-                        const grpInPositionContext = await this.FindGrpInContext(constants.PositionContext.context, "network", groupNumber, subnetworkID);
-                        if (grpInPositionContext != false) {
-                            const grpDaliInZone = await this.FindGrpInContext(constants.ZoneContext.context, "network", groupNumber, subnetworkID);
-                            if (grpDaliInZone != false) {
-                                //console.log("Zone found for group", groupNumber, ":", grpDaliInZone.id.get());
-                                const doubleCheck = await this.DoubleCheckZone(grpDaliInZone);
-                                //console.log("Double check for multiple zones for group", groupNumber, ":", doubleCheck);
-                                if (doubleCheck) {
-                                    await exports.networkService.setEndpointValue(getControlEndPoints.IntegrationCP.id.get(), true);
+                //integration data processing
+                const doubleCheckBalast = await this.doubleCheckBalast(balast.id.get(), item.id.get());
+                if (doubleCheckBalast != false) {
+                    await exports.networkService.setEndpointValue(getControlEndPoints.CorrectBalastCP.id.get(), true);
+                    if (groupNumber != 'null' && groupNumber != "") {
+                        const subnetworkID = await this.getSubnetwork(balast.id.get());
+                        if (subnetworkID != undefined) {
+                            //console.log("Subnetwork ID found:", subnetworkID);
+                            const grpInPositionContext = await this.FindGrpInContext(constants.PositionContext.context, "network", groupNumber, subnetworkID);
+                            if (grpInPositionContext != false) {
+                                const grpDaliInZone = await this.FindGrpInContext(constants.ZoneContext.context, "network", groupNumber, subnetworkID);
+                                if (grpDaliInZone != false) {
+                                    //console.log("Zone found for group", groupNumber, ":", grpDaliInZone.id.get());
+                                    const doubleCheck = await this.DoubleCheckZone(grpDaliInZone, item);
+                                    //console.log("Double check for multiple zones for group", groupNumber, ":", doubleCheck);
+                                    if (doubleCheck) {
+                                        await exports.networkService.setEndpointValue(getControlEndPoints.IntegrationCP.id.get(), true);
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                //OPCUA data processing
+                await exports.networkService.setEndpointValue(getControlEndPoints.BalastCP.id.get(), true);
+                if (groupNumber != 'null' && groupNumber != "") {
+                    await exports.networkService.setEndpointValue(getControlEndPoints.GroupCP.id.get(), true);
+                    const subnetworkID = await this.getSubnetwork(balast.id.get());
+                    if (subnetworkID != undefined) {
+                        //console.log("Subnetwork ID found:", subnetworkID);
+                        const zoneInfo = await this.getZoneAttributeFromGrpDALI(subnetworkID, groupNumber);
+                        if (zoneInfo) {
+                            //console.log("Zone Info found:", zoneInfo);
+                            const zoneVerification = await this.getZoneFromOpcua(subnetworkID, zoneInfo);
+                            //console.log("zone exists : ",zoneVerification.zoneexists,"Double zone :", zoneVerification.zonedublicated);
+                            if (zoneVerification.zoneexists == true) {
+                                await exports.networkService.setEndpointValue(getControlEndPoints.ZoneCP.id.get(), true);
+                                if (zoneVerification.zonedublicated == true) {
+                                    await exports.networkService.setEndpointValue(getControlEndPoints.DuplicatedZoneCP.id.get(), true);
+                                    console.log("Skipping DuplicatedZoneCP set to false due to multiple zones for group", groupNumber, "object:", item.name.get());
+                                }
+                                else {
+                                    await exports.networkService.setEndpointValue(getControlEndPoints.DuplicatedZoneCP.id.get(), false);
+                                    await exports.networkService.setEndpointValue(getControlEndPoints.OPCUACP.id.get(), true);
+                                }
+                            }
+                        }
+                    }
+                }
+                ///bmsEndPoints.length = 0;
             }
         }
+        //objectData = null;
+        //getControlEndPoints = null;
     }
     async getZoneAttributeFromGrpDALI(subnetworkID, grpNumber) {
         const bmsgrp = (await spinal_env_viewer_graph_service_1.SpinalGraphService.getChildren(subnetworkID, ["hasBmsEndpoint"])).find(e => e.name.get() == "Grp DALI" + " " + grpNumber);
@@ -295,59 +377,6 @@ class Utils {
             }
         }
         return zoneVerification;
-    }
-    async OpcuaDataHandler(item) {
-        const objectData = {
-            BalastCP: undefined,
-            GroupCP: undefined,
-            ZoneCP: undefined,
-            DuplicatedZoneCP: undefined,
-            IntegrationCP: undefined,
-            OPCUACP: undefined,
-        };
-        //console.log("in datahandler")
-        const getControlEndPoints = await this.getControlPoint(item.id.get(), constants.controlPointNames, objectData);
-        if (getControlEndPoints.OPCUACP && getControlEndPoints.BalastCP && getControlEndPoints.GroupCP && getControlEndPoints.ZoneCP && getControlEndPoints.DuplicatedZoneCP) {
-            //Initialize all control points to false
-            await exports.networkService.setEndpointValue(getControlEndPoints.OPCUACP.id.get(), false);
-            await exports.networkService.setEndpointValue(getControlEndPoints.BalastCP.id.get(), false);
-            await exports.networkService.setEndpointValue(getControlEndPoints.GroupCP.id.get(), false);
-            await exports.networkService.setEndpointValue(getControlEndPoints.ZoneCP.id.get(), false);
-            await exports.networkService.setEndpointValue(getControlEndPoints.DuplicatedZoneCP.id.get(), false);
-            //Start the Processing
-            console.log("Processing item:", item.name.get());
-            const bmsEndPoints = await spinal_env_viewer_graph_service_1.SpinalGraphService.getChildren(item.id.get(), ["hasBmsEndpoint"]);
-            //console.log(bmsEndPoints);
-            if (bmsEndPoints.length != 0) {
-                await exports.networkService.setEndpointValue(getControlEndPoints.BalastCP.id.get(), true);
-                const balast = bmsEndPoints[0];
-                const groupNumber = await this.getGroupNumber(balast.id.get());
-                if (groupNumber != 'null') {
-                    await exports.networkService.setEndpointValue(getControlEndPoints.GroupCP.id.get(), true);
-                    const subnetworkID = await this.getSubnetwork(balast.id.get());
-                    if (subnetworkID != undefined) {
-                        console.log("Subnetwork ID found:", subnetworkID);
-                        const zoneInfo = await this.getZoneAttributeFromGrpDALI(subnetworkID, groupNumber);
-                        if (zoneInfo) {
-                            console.log("Zone Info found:", zoneInfo);
-                            const zoneVerification = await this.getZoneFromOpcua(subnetworkID, zoneInfo);
-                            console.log("zone exists : ", zoneVerification.zoneexists, "Double zone :", zoneVerification.zonedublicated);
-                            if (zoneVerification.zoneexists == true) {
-                                await exports.networkService.setEndpointValue(getControlEndPoints.ZoneCP.id.get(), true);
-                                if (zoneVerification.zonedublicated == true) {
-                                    await exports.networkService.setEndpointValue(getControlEndPoints.DuplicatedZoneCP.id.get(), true);
-                                    console.log("Skipping DuplicatedZoneCP set to true due to multiple zones for group", groupNumber, "object:", item.name.get());
-                                }
-                                else {
-                                    await exports.networkService.setEndpointValue(getControlEndPoints.DuplicatedZoneCP.id.get(), false);
-                                    await exports.networkService.setEndpointValue(getControlEndPoints.OPCUACP.id.get(), true);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 exports.Utils = Utils;

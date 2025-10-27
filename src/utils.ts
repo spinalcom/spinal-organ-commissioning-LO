@@ -297,6 +297,168 @@ public async getSubnetwork(elementID:string): Promise<string | undefined> {
 
 
    
+    public async DataHandler(item: SpinalNodeRef) {
+
+        let objectData: ObjectData = {
+            BalastCP: undefined,
+            GroupCP: undefined,
+            ZoneCP: undefined,
+            DuplicatedZoneCP: undefined,
+            IntegrationCP: undefined,
+            OPCUACP: undefined,
+            CorrectBalastCP: undefined
+
+        };
+
+        //console.log("in datahandler")
+        let getControlEndPoints = await this.getControlPoint(item.id.get(), constants.controlPointNames, objectData);
+
+        if (getControlEndPoints.IntegrationCP && getControlEndPoints.CorrectBalastCP 
+            && getControlEndPoints.BalastCP && getControlEndPoints.GroupCP && 
+            getControlEndPoints.ZoneCP && getControlEndPoints.DuplicatedZoneCP && 
+            getControlEndPoints.OPCUACP) {
+
+
+            //Initialize  control point to false
+            await networkService.setEndpointValue(getControlEndPoints.IntegrationCP!.id.get(), false);
+            await networkService.setEndpointValue(getControlEndPoints.CorrectBalastCP!.id.get(), false);
+            await networkService.setEndpointValue(getControlEndPoints.BalastCP.id.get(), false);
+            await networkService.setEndpointValue(getControlEndPoints.GroupCP.id.get(), false);
+            await networkService.setEndpointValue(getControlEndPoints.ZoneCP.id.get(), false);
+            await networkService.setEndpointValue(getControlEndPoints.DuplicatedZoneCP.id.get(), false);
+            await networkService.setEndpointValue(getControlEndPoints.OPCUACP.id.get(), false);
+            //Start the Processing
+            const bmsEndPoints = await SpinalGraphService.getChildren(item.id.get(), ["hasBmsEndpoint"]);
+            //console.log(bmsEndPoints);
+            if (bmsEndPoints.length != 0) {
+                const balast = bmsEndPoints[0]
+                const groupNumber = await this.getGroupNumber(balast.id.get());
+                //integration data processing
+                const doubleCheckBalast = await this.doubleCheckBalast(balast.id.get(), item.id.get());
+                if (doubleCheckBalast != false) {
+                    await networkService.setEndpointValue(getControlEndPoints.CorrectBalastCP!.id.get(), true);
+                    
+                    if (groupNumber != 'null' && groupNumber != "") {
+
+                        const subnetworkID = await this.getSubnetwork(balast.id.get());
+                        if (subnetworkID != undefined) {
+                            //console.log("Subnetwork ID found:", subnetworkID);
+                            const grpInPositionContext = await this.FindGrpInContext(constants.PositionContext.context, "network", groupNumber, subnetworkID!);
+                            if (grpInPositionContext != false) {
+                                const grpDaliInZone = await this.FindGrpInContext(constants.ZoneContext.context, "network", groupNumber, subnetworkID!);
+                                if (grpDaliInZone != false) {
+                                    //console.log("Zone found for group", groupNumber, ":", grpDaliInZone.id.get());
+                                    const doubleCheck = await this.DoubleCheckZone(grpDaliInZone,item);
+                                    //console.log("Double check for multiple zones for group", groupNumber, ":", doubleCheck);
+                                    if (doubleCheck) {
+                                        await networkService.setEndpointValue(getControlEndPoints.IntegrationCP.id.get(), true)
+                                    }
+
+                                }
+                            }
+                        }
+                    }
+                }
+
+                //OPCUA data processing
+                await networkService.setEndpointValue(getControlEndPoints.BalastCP.id.get(), true);
+                if (groupNumber != 'null' && groupNumber != "") {
+                    await networkService.setEndpointValue(getControlEndPoints.GroupCP.id.get(), true)
+                    const subnetworkID = await this.getSubnetwork(balast.id.get());
+                    if (subnetworkID != undefined) {
+                        //console.log("Subnetwork ID found:", subnetworkID);
+                        const zoneInfo = await this.getZoneAttributeFromGrpDALI(subnetworkID, groupNumber);
+                        if (zoneInfo) {
+                            //console.log("Zone Info found:", zoneInfo);
+                            const zoneVerification = await this.getZoneFromOpcua(subnetworkID, zoneInfo);
+                            //console.log("zone exists : ",zoneVerification.zoneexists,"Double zone :", zoneVerification.zonedublicated);
+                            if (zoneVerification.zoneexists == true) {
+                                await networkService.setEndpointValue(getControlEndPoints.ZoneCP.id.get(), true)
+                                if (zoneVerification.zonedublicated == true) {
+                                    await networkService.setEndpointValue(getControlEndPoints.DuplicatedZoneCP.id.get(), true)
+                                    console.log("Skipping DuplicatedZoneCP set to false due to multiple zones for group", groupNumber, "object:", item.name.get());
+                                } else {
+                                    await networkService.setEndpointValue(getControlEndPoints.DuplicatedZoneCP.id.get(), false)
+                                    await networkService.setEndpointValue(getControlEndPoints.OPCUACP.id.get(), true)
+                                }
+                            }
+                        }
+                    }
+
+
+                }
+
+                ///bmsEndPoints.length = 0;
+                
+            }
+            
+            
+        }
+       
+        //objectData = null;
+        //getControlEndPoints = null;
+
+    }
+ 
+
+
+public async getZoneAttributeFromGrpDALI(subnetworkID: string, grpNumber :string ): Promise< string | undefined> {
+    const bmsgrp = (await SpinalGraphService.getChildren(subnetworkID, ["hasBmsEndpoint"])).find(e => e.name.get() == "Grp DALI" + " " + grpNumber);
+    if(bmsgrp) {
+        const realgrp = SpinalGraphService.getRealNode(bmsgrp.id.get());
+        const zoneAttribute = await attributeService.findOneAttributeInCategory(realgrp, "OPC Attributes", "Info");
+        if (zoneAttribute != -1) {
+            return zoneAttribute.value.get();
+        }
+    }
+    return undefined;
+}
+
+
+    public async getZoneFromOpcua(subnetworkID: string, zoneInfo: string): Promise<any> {
+        const zoneVerification = {
+            zoneexists: false,
+            zonedublicated: false
+        };
+
+        const gateway = (await SpinalGraphService.getParents(subnetworkID, ["hasBmsEndpoint"]))
+            .find(e => e.type.get() === "BmsDevice");
+
+        if (!gateway) return zoneVerification;
+
+        const zoneNode = (await SpinalGraphService.getChildren(gateway.id.get(), ["hasBmsEndpoint"]))
+            .find(e => e.name.get().toLowerCase() === "zones");
+
+        if (!zoneNode) return zoneVerification;
+
+        const allZones = await SpinalGraphService.getChildren(zoneNode.id.get(), ["hasBmsEndpoint"]);
+        if (allZones.length === 0) return zoneVerification;
+        // Filtrer les zones en fonction de l'attribut "Zone info 2"
+        const filteredZones = (
+            await Promise.all(allZones.map(async z => {
+                const realz = SpinalGraphService.getRealNode(z.id.get());
+                const attr = await attributeService.findOneAttributeInCategory(realz, "OPC Attributes", "Zone info 2");
+
+                if (attr !== -1) {
+                    const zoneValue = attr.value.get().slice(0, 8).toLowerCase();
+                    if (zoneValue === zoneInfo.slice(0, 8).toLowerCase()) {
+                        return z; // zone correspondante
+                    }
+                }
+                return null; // pas de correspondance
+            }))
+        ).filter(Boolean); // filtre tous les null
+
+        // Vérification du résultat
+        if (filteredZones.length > 0) {
+            zoneVerification.zoneexists = true;
+            if (filteredZones.length > 1) {
+                zoneVerification.zonedublicated = true;
+            }
+        }
+
+        return zoneVerification;
+    }
     public async IntegDataHandler(item: SpinalNodeRef) {
 
         const objectData: ObjectData = {
@@ -356,66 +518,9 @@ public async getSubnetwork(elementID:string): Promise<string | undefined> {
         }
 
     }
-public async getZoneAttributeFromGrpDALI(subnetworkID: string, grpNumber :string ): Promise< string | undefined> {
-    const bmsgrp = (await SpinalGraphService.getChildren(subnetworkID, ["hasBmsEndpoint"])).find(e => e.name.get() == "Grp DALI" + " " + grpNumber);
-    if(bmsgrp) {
-        const realgrp = SpinalGraphService.getRealNode(bmsgrp.id.get());
-        const zoneAttribute = await attributeService.findOneAttributeInCategory(realgrp, "OPC Attributes", "Info");
-        if (zoneAttribute != -1) {
-            return zoneAttribute.value.get();
-        }
-    }
-    return undefined;
-}
 
 
-    public async getZoneFromOpcua(subnetworkID: string, zoneInfo: string): Promise<any> {
-        const zoneVerification = {
-            zoneexists: false,
-            zonedublicated: false
-        };
-
-        const gateway = (await SpinalGraphService.getParents(subnetworkID, ["hasBmsEndpoint"]))
-            .find(e => e.type.get() === "BmsDevice");
-
-        if (!gateway) return zoneVerification;
-
-        const zoneNode = (await SpinalGraphService.getChildren(gateway.id.get(), ["hasBmsEndpoint"]))
-            .find(e => e.name.get().toLowerCase() === "zones");
-
-        if (!zoneNode) return zoneVerification;
-
-        const allZones = await SpinalGraphService.getChildren(zoneNode.id.get(), ["hasBmsEndpoint"]);
-        if (allZones.length === 0) return zoneVerification;
-        // Filtrer les zones en fonction de l'attribut "Zone info 2"
-        const filteredZones = (
-            await Promise.all(allZones.map(async z => {
-                const realz = SpinalGraphService.getRealNode(z.id.get());
-                const attr = await attributeService.findOneAttributeInCategory(realz, "OPC Attributes", "Zone info 2");
-
-                if (attr !== -1) {
-                    const zoneValue = attr.value.get().slice(0, 8).toLowerCase();
-                    if (zoneValue === zoneInfo.slice(0, 8).toLowerCase()) {
-                        return z; // zone correspondante
-                    }
-                }
-                return null; // pas de correspondance
-            }))
-        ).filter(Boolean); // filtre tous les null
-
-        // Vérification du résultat
-        if (filteredZones.length > 0) {
-            zoneVerification.zoneexists = true;
-            if (filteredZones.length > 1) {
-                zoneVerification.zonedublicated = true;
-            }
-        }
-
-        return zoneVerification;
-    }
-
-
-    public async OpcuaDataHandler(item: SpinalNodeRef) {
+    /*public async OpcuaDataHandler(item: SpinalNodeRef) {
 
         const objectData: ObjectData = {
             BalastCP: undefined,
@@ -445,7 +550,7 @@ public async getZoneAttributeFromGrpDALI(subnetworkID: string, grpNumber :string
             if (bmsEndPoints.length != 0) {
                 await networkService.setEndpointValue(getControlEndPoints.BalastCP.id.get(), true);
                 const balast = bmsEndPoints[0]
-                const groupNumber = await this.getGroupNumber(balast.id.get());
+                //const groupNumber = await this.getGroupNumber(balast.id.get());
                 if (groupNumber != 'null') {
                     await networkService.setEndpointValue(getControlEndPoints.GroupCP.id.get(), true)
                     const subnetworkID = await this.getSubnetwork(balast.id.get());
@@ -471,9 +576,9 @@ public async getZoneAttributeFromGrpDALI(subnetworkID: string, grpNumber :string
 
 
                 }
-
+                bmsEndPoints.length = 0;
 
             }
         }
-    }
+    }*/
 }

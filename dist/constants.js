@@ -23,11 +23,11 @@
  * <http://resources.spinalcom.com/licenses.pdf>.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.OPCUAControlPoint = exports.IntegrationControlPoint = exports.DuplicatedZoneControlPoint = exports.ZoneControlPoint = exports.GroupControlPoint = exports.BalastControlPoint = exports.controlPointNames = exports.controlPointProfil = exports.PositionContext = exports.ZoneContext = exports.Objects = void 0;
+exports.CorrectBalastControlPoint = exports.OPCUAControlPoint = exports.IntegrationControlPoint = exports.DuplicatedZoneControlPoint = exports.ZoneControlPoint = exports.GroupControlPoint = exports.BalastControlPoint = exports.controlPointNames = exports.controlPointProfil = exports.PositionContext = exports.ZoneContext = exports.Objects = void 0;
 exports.Objects = Object.freeze({
     context: "Gestion des équipements",
     category: "Commissioning télécommande",
-    groupe: "test 2"
+    groupe: "Luminaire - Open space"
 });
 exports.ZoneContext = Object.freeze({
     context: "Hardware Context Zones"
@@ -42,7 +42,8 @@ exports.controlPointNames = [
     "Has Zone",
     "Has Duplicated Zone",
     "Monitored/Integration",
-    "Monitored/OPCUA"
+    "Monitored/OPCUA",
+    "Correct Balast"
 ];
 exports.BalastControlPoint = "Has Balast";
 exports.GroupControlPoint = "Has Group";
@@ -50,4 +51,5 @@ exports.ZoneControlPoint = "Has Zone";
 exports.DuplicatedZoneControlPoint = "Has Duplicated Zone";
 exports.IntegrationControlPoint = "Monitored/Integration";
 exports.OPCUAControlPoint = "Monitored/OPCUA";
+exports.CorrectBalastControlPoint = "Correct Balast";
 //# sourceMappingURL=constants.js.map
