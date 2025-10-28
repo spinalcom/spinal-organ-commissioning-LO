@@ -1,4 +1,5 @@
 "use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 /*
  * Copyright 2025 SpinalCom - www.spinalcom.com
  *
@@ -22,7 +23,8 @@
  * with this file. If not, see
  * <http://resources.spinalcom.com/licenses.pdf>.
  */
-Object.defineProperty(exports, "__esModule", { value: true });
+const path = require("path");
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const spinal_env_viewer_graph_service_1 = require("spinal-env-viewer-graph-service");
 const spinal_core_connectorjs_type_1 = require("spinal-core-connectorjs_type");
 const config = require("../config");
@@ -58,14 +60,14 @@ class SpinalMain {
     async MainJob() {
         const { context, category, groupe } = constants.Objects;
         const objects = await utils.getObjects(context, category, groupe);
-        //const test = objects.slice(3000,4789);
-        const chunkSize = 50;
+        //const test = objects.slice(4300,4789);
+        const chunkSize = 100;
         console.log(`Starting processing ${objects.length} objects in chunks of ${chunkSize}`);
         // Process objects in chunks, removing them from the array after processing
         while (objects.length > 0) {
             const chunk = objects.splice(0, chunkSize);
             await Promise.all(chunk.map(async (item) => {
-                await utils.DataHandler(item);
+                await utils.IntegDataHandler(item);
                 //await utils.OpcuaDataHandler(item);
             }));
             console.log(`Remaining objects: ${objects.length}`);

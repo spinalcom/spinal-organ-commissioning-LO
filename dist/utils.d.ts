@@ -25,4 +25,5 @@ export declare class Utils {
     DataHandler(item: SpinalNodeRef): Promise<void>;
     getZoneAttributeFromGrpDALI(subnetworkID: string, grpNumber: string): Promise<string | undefined>;
     getZoneFromOpcua(subnetworkID: string, zoneInfo: string): Promise<any>;
+    IntegDataHandler(item: SpinalNodeRef): Promise<void>;
 }

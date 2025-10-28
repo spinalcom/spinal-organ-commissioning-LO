@@ -378,6 +378,52 @@ class Utils {
         }
         return zoneVerification;
     }
+    async IntegDataHandler(item) {
+        const objectData = {
+            BalastCP: undefined,
+            GroupCP: undefined,
+            ZoneCP: undefined,
+            DuplicatedZoneCP: undefined,
+            IntegrationCP: undefined,
+            OPCUACP: undefined,
+            CorrectBalastCP: undefined
+        };
+        //console.log("in datahandler")
+        const getControlEndPoints = await this.getControlPoint(item.id.get(), constants.controlPointNames, objectData);
+        if (getControlEndPoints.IntegrationCP && getControlEndPoints.CorrectBalastCP) {
+            //Initialize  control point to false
+            await exports.networkService.setEndpointValue(getControlEndPoints.IntegrationCP.id.get(), false);
+            await exports.networkService.setEndpointValue(getControlEndPoints.CorrectBalastCP.id.get(), false);
+            const bmsEndPoints = await spinal_env_viewer_graph_service_1.SpinalGraphService.getChildren(item.id.get(), ["hasBmsEndpoint"]);
+            //console.log(bmsEndPoints);
+            if (bmsEndPoints.length != 0) {
+                const balast = bmsEndPoints[0];
+                const doubleCheckBalast = await this.doubleCheckBalast(balast.id.get(), item.id.get());
+                if (doubleCheckBalast != false) {
+                    await exports.networkService.setEndpointValue(getControlEndPoints.CorrectBalastCP.id.get(), true);
+                    const groupNumber = await this.getGroupNumber(balast.id.get());
+                    if (groupNumber != 'null' && groupNumber != "") {
+                        const subnetworkID = await this.getSubnetwork(balast.id.get());
+                        if (subnetworkID != undefined) {
+                            //console.log("Subnetwork ID found:", subnetworkID);
+                            const grpInPositionContext = await this.FindGrpInContext(constants.PositionContext.context, "network", groupNumber, subnetworkID);
+                            if (grpInPositionContext != false) {
+                                const grpDaliInZone = await this.FindGrpInContext(constants.ZoneContext.context, "network", groupNumber, subnetworkID);
+                                if (grpDaliInZone != false) {
+                                    //console.log("Zone found for group", groupNumber, ":", grpDaliInZone.id.get());
+                                    const doubleCheck = await this.DoubleCheckZone(grpDaliInZone, item);
+                                    //console.log("Double check for multiple zones for group", groupNumber, ":", doubleCheck);
+                                    if (doubleCheck) {
+                                        await exports.networkService.setEndpointValue(getControlEndPoints.IntegrationCP.id.get(), true);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 exports.Utils = Utils;
 //# sourceMappingURL=utils.js.map

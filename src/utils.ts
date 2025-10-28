@@ -245,8 +245,6 @@ public async getSubnetwork(elementID:string): Promise<string | undefined> {
     public async DoubleCheckZone(Bmsgrp: any, item: SpinalNodeRef): Promise<boolean> {
         try {
             const netGroups = (await SpinalGraphService.getParents(Bmsgrp.id.get(), ["hasBmsEndpoint"])).filter(e => e.type.get() == "network");
-
-
             const zones = await Promise.all(
                 netGroups.map(async g => {
                     const parentGroups = await SpinalGraphService.getParents(g.id.get(), ["hasNetworkTreeGroup"]);
@@ -472,7 +470,6 @@ public async getZoneAttributeFromGrpDALI(subnetworkID: string, grpNumber :string
 
         };
 
-        //console.log("in datahandler")
         const getControlEndPoints = await this.getControlPoint(item.id.get(), constants.controlPointNames, objectData);
 
         if (getControlEndPoints.IntegrationCP && getControlEndPoints.CorrectBalastCP) {
